@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Energy Auditing System — Dashboard</title>
+  <meta name="description" content="AI-Enabled Energy Auditing System for Residential Energy Evaluation — real-time household electricity monitoring dashboard." />
+
+  <!-- Poppins font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+
+    <!-- ============ SIDEBAR ============ -->
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-logo">
+          <i class="fa-solid fa-house-signal"></i>
+          <span class="leaf"><i class="fa-solid fa-leaf"></i></span>
+        </div>
+        <div class="brand-text">
+          <h1>AI Energy</h1>
+          <p>Auditing System</p>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <a href="#" class="nav-item active" data-page="dashboard">
+          <i class="fa-solid fa-grip"></i><span>Dashboard</span>
+        </a>
+        <a href="#" class="nav-item" data-page="usage">
+          <i class="fa-solid fa-bolt"></i><span>Energy Usage</span>
+        </a>
+        <a href="#" class="nav-item" data-page="audit">
+          <i class="fa-solid fa-shield-halved"></i><span>AI Audit</span>
+        </a>
+        <a href="#" class="nav-item" data-page="rec">
+          <i class="fa-solid fa-lightbulb"></i><span>Recommendations</span>
+        </a>
+        <a href="#" class="nav-item" data-page="history">
+          <i class="fa-solid fa-clock-rotate-left"></i><span>History</span>
+        </a>
+        <a href="#" class="nav-item" data-page="about">
+          <i class="fa-solid fa-circle-info"></i><span>About</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <p class="sf-label">System Status</p>
+        <p class="sf-status"><span class="dot"></span> Online</p>
+        <p class="sf-label mt">Last Updated</p>
+        <p class="sf-time" id="sidebarUpdated">—</p>
+      </div>
+    </aside>
+
+    <!-- ============ MAIN ============ -->
+    <main class="main">
+
+      <!-- Header -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="menu-btn" id="menuBtn" aria-label="Toggle menu">
+            <i class="fa-solid fa-bars"></i>
+          </button>
+          <div>
+            <h2 class="page-title">Dashboard</h2>
+            <p class="page-sub">Real-time overview of household electricity consumption</p>
+          </div>
+        </div>
+        <div class="topbar-right">
+          <div class="chip">
+            <i class="fa-regular fa-calendar"></i>
+            <span id="liveDate">—</span>
+            <span class="sep">•</span>
+            <i class="fa-regular fa-clock"></i>
+            <span id="liveClock">—</span>
+          </div>
+          <button class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode">
+            <i class="fa-solid fa-sun"></i>
+          </button>
+        </div>
+      </header>
+
+      <!-- Summary cards -->
+      <section class="grid summary-grid">
+        <article class="card summary-card accent-green">
+          <div class="card-head">
+            <div class="icon-badge green"><i class="fa-solid fa-bolt"></i></div>
+            <span class="card-label">Current Power</span>
+          </div>
+          <h3 class="metric" id="metricPower">1,250 <small>W</small></h3>
+          <p class="muted">Live household power consumption</p>
+          <div class="spark"><canvas id="sparkPower"></canvas></div>
+        </article>
+
+        <article class="card summary-card accent-blue">
+          <div class="card-head">
+            <div class="icon-badge blue"><i class="fa-solid fa-file-invoice-dollar"></i></div>
+            <span class="card-label">Estimated Monthly Bill</span>
+          </div>
+          <h3 class="metric" id="metricBill">₱1,984</h3>
+          <p class="muted">Prediction for this month</p>
+          <span class="pill pill-down" id="billDelta">
+            <i class="fa-solid fa-arrow-down"></i> 8.6% vs last month
+          </span>
+        </article>
+
+        <article class="card summary-card accent-amber">
+          <div class="card-head">
+            <div class="icon-badge amber"><i class="fa-solid fa-shield-halved"></i></div>
+            <span class="card-label">AI Energy Audit</span>
+          </div>
+          <div class="audit-row">
+            <div>
+              <h3 class="metric status-text" id="auditStatus">Normal</h3>
+              <p class="muted" id="auditNote">No unusual consumption detected</p>
+            </div>
+            <div class="status-circle" id="auditCircle">
+              <i class="fa-regular fa-face-smile"></i>
+            </div>
+          </div>
+        </article>
+
+        <article class="card summary-card accent-green">
+          <div class="card-head">
+            <div class="icon-badge green"><i class="fa-solid fa-gauge-high"></i></div>
+            <span class="card-label">Household Efficiency</span>
+          </div>
+          <div class="audit-row">
+            <div>
+              <h3 class="metric"><span id="effScore">92</span> <small>/ 100</small></h3>
+              <p class="muted" id="effNote">Excellent efficiency rating</p>
+            </div>
+            <div class="ring" id="effRing" style="--val:92; --ring-color: var(--green-500);">
+              <span id="effRingVal">92</span>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <!-- Chart + recommendations -->
+      <section class="grid main-grid">
+        <article class="card chart-card">
+          <div class="card-head-row">
+            <div>
+              <h4 class="card-title">Household Electricity Usage Today</h4>
+              <p class="muted small">Hourly power consumption (Watts)</p>
+            </div>
+            <span class="chip subtle" id="chartDate">—</span>
+          </div>
+          <div class="chart-wrap">
+            <canvas id="usageChart"></canvas>
+          </div>
+        </article>
+
+        <article class="card rec-card">
+          <div class="card-head-row">
+            <h4 class="card-title"><i class="fa-solid fa-wand-magic-sparkles accent"></i> AI Recommendations</h4>
+          </div>
+          <ul class="rec-list" id="recList"></ul>
+          <a href="#" class="link-btn">View all recommendations <i class="fa-solid fa-arrow-right"></i></a>
+        </article>
+      </section>
+
+      <!-- Parameters + weekly -->
+      <section class="grid params-grid">
+        <article class="card params-card">
+          <div class="card-head-row">
+            <h4 class="card-title">Electrical Parameters (Live)</h4>
+            <span class="live-pill"><span class="dot"></span> Live</span>
+          </div>
+          <div class="params">
+            <div class="param">
+              <div class="param-icon green"><i class="fa-solid fa-wave-square"></i></div>
+              <p class="param-label">Voltage</p>
+              <p class="param-value"><span id="pVolt">228</span> V</p>
+            </div>
+            <div class="param">
+              <div class="param-icon blue"><i class="fa-solid fa-a"></i></div>
+              <p class="param-label">Current</p>
+              <p class="param-value"><span id="pCurr">5.3</span> A</p>
+            </div>
+            <div class="param">
+              <div class="param-icon purple"><i class="fa-solid fa-gauge"></i></div>
+              <p class="param-label">Power</p>
+              <p class="param-value"><span id="pPow">1250</span> W</p>
+            </div>
+            <div class="param">
+              <div class="param-icon orange">PF</div>
+              <p class="param-label">Power Factor</p>
+              <p class="param-value" id="pPF">0.95</p>
+            </div>
+            <div class="param">
+              <div class="param-icon teal"><i class="fa-solid fa-wave-square"></i></div>
+              <p class="param-label">Frequency</p>
+              <p class="param-value"><span id="pFreq">60.0</span> Hz</p>
+            </div>
+          </div>
+          <p class="muted small center">All values are simulated in real-time — ready to be wired to ESP32 sensor data.</p>
+        </article>
+
+        <article class="card weekly-card">
+          <div class="card-head-row">
+            <div>
+              <h4 class="card-title">Weekly Energy Consumption</h4>
+              <p class="muted small">Last 7 days (kWh)</p>
+            </div>
+            <a href="#" class="link-btn small">View full report <i class="fa-solid fa-arrow-right"></i></a>
+          </div>
+          <div class="chart-wrap short">
+            <canvas id="weeklyChart"></canvas>
+          </div>
+        </article>
+      </section>
+
+      <!-- Monthly summary -->
+      <section class="grid monthly-grid">
+        <article class="card mini">
+          <div class="icon-badge green"><i class="fa-solid fa-sun"></i></div>
+          <div>
+            <p class="muted">Today's Consumption</p>
+            <h3 class="metric-sm"><span id="todayKwh">8.4</span> kWh</h3>
+          </div>
+        </article>
+        <article class="card mini">
+          <div class="icon-badge blue"><i class="fa-solid fa-calendar-days"></i></div>
+          <div>
+            <p class="muted">Monthly Consumption</p>
+            <h3 class="metric-sm">236.5 kWh</h3>
+          </div>
+        </article>
+        <article class="card mini">
+          <div class="icon-badge amber"><i class="fa-solid fa-clock"></i></div>
+          <div>
+            <p class="muted">Peak Usage Time</p>
+            <h3 class="metric-sm">7:00 PM</h3>
+          </div>
+        </article>
+      </section>
+
+      <!-- Footer banner -->
+      <section class="banner">
+        <i class="fa-solid fa-seedling"></i>
+        <p>Small changes today, big savings tomorrow. Let AI help you build an energy-efficient home.</p>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
