@@ -226,28 +226,10 @@ function updateLiveParams() {
   usageChart.data.datasets[0].data[hr] = power;
   usageChart.update('none');
 
-  updateEfficiency(power, pf);
   updateAudit(power);
 }
 
-// ---------- Efficiency score + AI audit status ----------
-function updateEfficiency(power, pf) {
-  // Simulated score: high PF + moderate power = better score
-  let score = Math.round(pf * 100 - Math.max(0, (power - 1200) / 20));
-  score = Math.max(45, Math.min(99, score));
-
-  $('effScore').textContent = score;
-  $('effRingVal').textContent = score;
-  const ring = $('effRing');
-  ring.style.setProperty('--val', score);
-
-  let color = 'var(--green-500)', note = 'Excellent efficiency rating';
-  if (score < 60) { color = 'var(--red-500)'; note = 'Low efficiency — review usage'; }
-  else if (score < 80) { color = 'var(--amber-500)'; note = 'Moderate efficiency — room to improve'; }
-  ring.style.setProperty('--ring-color', color);
-  $('effNote').textContent = note;
-}
-
+// ---------- AI audit status ----------
 function updateAudit(power) {
   const el = $('auditStatus'), note = $('auditNote'), circle = $('auditCircle');
   circle.classList.remove('moderate', 'high');
