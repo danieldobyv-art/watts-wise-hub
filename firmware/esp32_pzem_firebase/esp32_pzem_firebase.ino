@@ -54,6 +54,17 @@ FirebaseData   fbdo;
 FirebaseAuth   fbAuth;
 FirebaseConfig fbConfig;
 
+// One live sample read from the PZEM sensor
+struct Reading {
+  bool   ok;
+  float  voltage;   // V
+  float  current;   // A
+  float  power;     // W
+  float  energy;    // kWh
+  float  frequency; // Hz
+  float  pf;        // 0..1
+};
+
 // Rollup accumulators for the current hour
 struct HourAcc {
   int    hour     = -1;      // 0..23
@@ -119,15 +130,7 @@ void initFirebase() {
 }
 
 // -------- PZEM read (with basic recovery) ----------------------
-struct Reading {
-  bool   ok;
-  float  voltage;   // V
-  float  current;   // A
-  float  power;     // W
-  float  energy;    // kWh
-  float  frequency; // Hz
-  float  pf;        // 0..1
-};
+
 
 Reading readPZEM() {
   Reading r{false, 0, 0, 0, 0, 0, 0};
