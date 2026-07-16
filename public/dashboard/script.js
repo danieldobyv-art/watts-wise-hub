@@ -1,15 +1,38 @@
 /* ============================================================
-   AI Energy Auditing System — Dashboard Script
-   All values are simulated. Replace generators with ESP32
-   sensor data / API calls when the backend is available.
+   AI Energy Auditing System — Dashboard (Live Firebase Data)
+   Data flow:
+     PZEM-004T v4  →  ESP32  →  Firebase Realtime Database  →  this dashboard
+   All configurable values live in config.js (window.AIEAS_CONFIG).
    ============================================================ */
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {
+  getDatabase, ref, onValue, get, child,
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+// Load config synchronously via a plain <script> tag would be cleaner, but
+// with modules we import the global set by config.js. We include config.js
+// via a <script> tag in index.html — but to keep index.html tidy we load it
+// here dynamically so it's available before we init Firebase.
+await new Promise((resolve, reject) => {
+  const s = document.createElement("script");
+  s.src = "config.js";
+  s.onload = resolve;
+  s.onerror = () => reject(new Error("Failed to load config.js"));
+  document.head.appendChild(s);
+});
+
+const CFG = window.AIEAS_CONFIG;
+if (!CFG) throw new Error("AIEAS_CONFIG missing — check config.js");
 
 // ---------- Utilities ----------
 const $ = (id) => document.getElementById(id);
-const rand = (min, max, dec = 1) => +(Math.random() * (max - min) + min).toFixed(dec);
-const fmt = (n) => n.toLocaleString();
+const fmt = (n) => Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 });
+const fmt2 = (n) => Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const todayKey = () => new Date().toISOString().slice(0, 10);       // YYYY-MM-DD
+const monthKey = () => new Date().toISOString().slice(0, 7);        // YYYY-MM
 
-// ---------- Live date/time ----------
+// ---------- Live clock ----------
 function updateClock() {
   const now = new Date();
   const dateStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -17,7 +40,6 @@ function updateClock() {
   $('liveDate').textContent = dateStr;
   $('liveClock').textContent = timeStr;
   $('chartDate').textContent = dateStr;
-  $('sidebarUpdated').textContent = `${dateStr}  ${timeStr}`;
 }
 
 // ---------- Sidebar (mobile) ----------
@@ -50,7 +72,7 @@ function syncThemeIcon() {
   icon.className = document.body.classList.contains('dark') ? 'fa-solid fa-moon' : 'fa-solid fa-sun';
 }
 
-// ---------- Chart palette helpers ----------
+// ---------- Chart helpers ----------
 function gradient(ctx, color) {
   const g = ctx.createLinearGradient(0, 0, 0, 260);
   g.addColorStop(0, color + 'aa');
@@ -58,14 +80,9 @@ function gradient(ctx, color) {
   return g;
 }
 
-// ---------- Today's hourly usage (line chart) ----------
-let usageChart;
-function buildUsageData() {
-  // Simulate a residential day: low overnight, morning bump, evening peak
-  const base = [180, 160, 150, 140, 140, 160, 260, 480, 620, 700, 780, 900,
-                950, 880, 820, 900, 1050, 1250, 1450, 1500, 1300, 900, 600, 320];
-  return base.map((v) => Math.round(v + rand(-60, 60, 0)));
-}
+// ---------- Charts ----------
+let usageChart, weeklyChart, sparkChart;
+
 function initUsageChart() {
   const ctx = $('usageChart').getContext('2d');
   const hours = Array.from({ length: 24 }, (_, i) => {
@@ -77,17 +94,14 @@ function initUsageChart() {
       labels: hours,
       datasets: [{
         label: 'Power (W)',
-        data: buildUsageData(),
+        data: new Array(24).fill(null),
         borderColor: '#22c55e',
         backgroundColor: gradient(ctx, '#22c55e'),
-        borderWidth: 2.5,
-        fill: true,
-        tension: 0.4,
-        pointRadius: 3,
-        pointHoverRadius: 6,
+        borderWidth: 2.5, fill: true, tension: 0.4,
+        pointRadius: 3, pointHoverRadius: 6,
         pointBackgroundColor: '#22c55e',
-        pointBorderColor: '#fff',
-        pointBorderWidth: 2,
+        pointBorderColor: '#fff', pointBorderWidth: 2,
+        spanGaps: true,
       }],
     },
     options: {
@@ -97,8 +111,6 @@ function initUsageChart() {
         legend: { display: false },
         tooltip: {
           backgroundColor: '#0d1f17', padding: 12, cornerRadius: 10,
-          titleFont: { family: 'Poppins', weight: '600' },
-          bodyFont: { family: 'Poppins' },
           callbacks: { label: (c) => ` ${fmt(c.parsed.y)} W` },
         },
       },
@@ -111,8 +123,6 @@ function initUsageChart() {
   });
 }
 
-// ---------- Weekly bar chart ----------
-let weeklyChart;
 function initWeeklyChart() {
   const ctx = $('weeklyChart').getContext('2d');
   const labels = [];
@@ -120,18 +130,14 @@ function initWeeklyChart() {
     const d = new Date(); d.setDate(d.getDate() - i);
     labels.push(d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
   }
-  const data = [8.2, 7.6, 9.1, 8.7, 10.3, 9.8, 8.4];
   weeklyChart = new Chart(ctx, {
     type: 'bar',
     data: {
       labels,
       datasets: [{
-        label: 'kWh',
-        data,
-        backgroundColor: '#22c55e',
-        hoverBackgroundColor: '#16a34a',
-        borderRadius: 8,
-        maxBarThickness: 34,
+        label: 'kWh', data: new Array(7).fill(0),
+        backgroundColor: '#22c55e', hoverBackgroundColor: '#16a34a',
+        borderRadius: 8, maxBarThickness: 34,
       }],
     },
     options: {
@@ -140,7 +146,7 @@ function initWeeklyChart() {
         legend: { display: false },
         tooltip: {
           backgroundColor: '#0d1f17', padding: 10, cornerRadius: 10,
-          callbacks: { label: (c) => ` ${c.parsed.y} kWh` },
+          callbacks: { label: (c) => ` ${fmt2(c.parsed.y)} kWh` },
         },
       },
       scales: {
@@ -151,16 +157,14 @@ function initWeeklyChart() {
   });
 }
 
-// ---------- Sparkline in "Current Power" card ----------
-let sparkChart;
 function initSpark() {
   const ctx = $('sparkPower').getContext('2d');
   sparkChart = new Chart(ctx, {
     type: 'line',
     data: {
-      labels: Array.from({ length: 12 }, (_, i) => i),
+      labels: Array.from({ length: 20 }, (_, i) => i),
       datasets: [{
-        data: Array.from({ length: 12 }, () => rand(1100, 1400, 0)),
+        data: [],
         borderColor: '#22c55e', borderWidth: 2, tension: 0.4,
         pointRadius: 0, fill: true,
         backgroundColor: gradient(ctx, '#22c55e'),
@@ -174,114 +178,260 @@ function initSpark() {
   });
 }
 
-// ---------- AI Recommendations ----------
-const RECS = [
-  { t: 'warn',  text: 'Reduce electricity usage between 6 PM – 9 PM (peak hours).' },
-  { t: 'info',  text: 'Consumption increased 4.2% compared to yesterday.' },
-  { t: 'good',  text: 'Power usage is within the efficient range today.' },
-  { t: 'warn',  text: 'Avoid running multiple high-load devices simultaneously.' },
-  { t: 'good',  text: 'Estimated monthly bill is below your neighborhood average.' },
-  { t: 'alert', text: 'Standby power detected overnight — unplug idle devices.' },
-  { t: 'info',  text: 'Shifting laundry to off-peak hours could save ₱120/month.' },
-];
+// ---------- AI Recommendations (derived from live values) ----------
 const ICONS = {
   warn:  'fa-solid fa-triangle-exclamation',
   info:  'fa-solid fa-circle-info',
   good:  'fa-solid fa-circle-check',
   alert: 'fa-solid fa-bolt',
 };
-function renderRecs() {
-  const pool = [...RECS].sort(() => Math.random() - 0.5).slice(0, 4);
-  $('recList').innerHTML = pool.map((r) => `
+
+function buildRecommendations(live, todayKwh, monthKwh) {
+  const recs = [];
+  const p = live?.power ?? 0;
+  const pf = live?.powerFactor ?? 1;
+  const v = live?.voltage ?? 230;
+  const hour = new Date().getHours();
+  const T = CFG.auditThresholds;
+
+  if (p > T.moderate) {
+    recs.push({ t: 'alert', text: `High load detected (${fmt(p)} W). Turn off non-essential appliances now.` });
+  } else if (p > T.good) {
+    recs.push({ t: 'warn', text: `Consumption is elevated (${fmt(p)} W). Consider staggering heavy appliances.` });
+  } else if (p < T.excellent) {
+    recs.push({ t: 'good', text: `Excellent — current draw is only ${fmt(p)} W.` });
+  } else {
+    recs.push({ t: 'good', text: `Power usage is within an efficient range (${fmt(p)} W).` });
+  }
+
+  if (pf && pf < 0.85) {
+    recs.push({ t: 'warn', text: `Low power factor (${fmt2(pf)}). Inductive loads may be running inefficiently.` });
+  }
+  if (v && (v < 210 || v > 245)) {
+    recs.push({ t: 'alert', text: `Voltage out of nominal range (${fmt(v)} V). Check main supply.` });
+  }
+  if (hour >= 18 && hour <= 21 && p > T.good) {
+    recs.push({ t: 'warn', text: 'You are consuming heavily during peak hours (6 PM – 9 PM). Shift loads to off-peak to save.' });
+  }
+  if (todayKwh > 0) {
+    const projMonth = todayKwh * 30;
+    recs.push({ t: 'info', text: `At today's pace (${fmt2(todayKwh)} kWh), monthly usage would reach ~${fmt2(projMonth)} kWh.` });
+  }
+  if (monthKwh > 0) {
+    const bill = monthKwh * CFG.electricityRatePhpPerKwh;
+    recs.push({ t: 'info', text: `Month-to-date bill: ₱${fmt2(bill)} at ₱${fmt2(CFG.electricityRatePhpPerKwh)}/kWh.` });
+  }
+
+  return recs.slice(0, 5);
+}
+
+function renderRecs(recs) {
+  if (!recs.length) {
+    $('recList').innerHTML = `<li class="rec-item info">
+      <div class="rec-icon"><i class="${ICONS.info}"></i></div>
+      <p>Waiting for live sensor data…</p></li>`;
+    return;
+  }
+  $('recList').innerHTML = recs.map((r) => `
     <li class="rec-item ${r.t}">
       <div class="rec-icon"><i class="${ICONS[r.t]}"></i></div>
       <p>${r.text}</p>
     </li>`).join('');
 }
 
-// ---------- Live electrical parameters ----------
-function updateLiveParams() {
-  const voltage = rand(220, 235);
-  const current = rand(4.8, 6.2, 2);
-  const power = Math.round(voltage * current * rand(0.92, 0.98, 2));
-  const pf = rand(0.92, 0.99, 2);
-  const freq = rand(59.8, 60.2, 2);
-
-  animateNumber('pVolt', voltage, 0);
-  $('pCurr').textContent = current;
-  animateNumber('pPow', power, 0);
-  $('pPF').textContent = pf;
-  $('pFreq').textContent = freq;
-
-  // Update top "Current Power" metric
-  $('metricPower').innerHTML = `${fmt(power)} <small>W</small>`;
-
-  // Update sparkline
-  const arr = sparkChart.data.datasets[0].data;
-  arr.shift(); arr.push(power);
-  sparkChart.update('none');
-
-  // Update today chart's current hour
-  const hr = new Date().getHours();
-  usageChart.data.datasets[0].data[hr] = power;
-  usageChart.update('none');
-
-  updateAudit(power);
-}
-
-// ---------- AI audit status ----------
+// ---------- AI Audit ----------
 function updateAudit(power) {
   const el = $('auditStatus'), note = $('auditNote'), circle = $('auditCircle');
   circle.classList.remove('moderate', 'high');
-  let status = 'Normal', msg = 'No unusual consumption detected', icon = 'fa-regular fa-face-smile', color = 'var(--green-600)';
+  const T = CFG.auditThresholds;
+  let status, msg, icon, color;
 
-  if (power > 1600) {
-    status = 'High Consumption'; msg = 'Unusual spike detected — investigate loads';
-    icon = 'fa-solid fa-triangle-exclamation'; color = 'var(--red-500)';
+  if (power > T.moderate) {
+    status = 'High Consumption';
+    msg = 'Consistently high load — investigate running appliances.';
+    icon = 'fa-solid fa-triangle-exclamation';
+    color = 'var(--red-500)';
     circle.classList.add('high');
-  } else if (power > 1350) {
-    status = 'Moderate'; msg = 'Slightly above baseline for this hour';
-    icon = 'fa-solid fa-gauge-high'; color = 'var(--amber-500)';
+  } else if (power > T.good) {
+    status = 'Moderate';
+    msg = 'Slightly above efficient range for this hour.';
+    icon = 'fa-solid fa-gauge-high';
+    color = 'var(--amber-500)';
     circle.classList.add('moderate');
-  } else if (power < 500) {
-    status = 'Excellent'; msg = 'Low, efficient consumption';
+  } else if (power < T.excellent) {
+    status = 'Excellent';
+    msg = 'Low, efficient consumption.';
     icon = 'fa-regular fa-face-grin-stars';
+    color = 'var(--green-600)';
+  } else {
+    status = 'Good';
+    msg = 'Consumption is within a healthy range.';
+    icon = 'fa-regular fa-face-smile';
+    color = 'var(--green-600)';
   }
+
   el.textContent = status;
   el.style.color = color;
   note.textContent = msg;
   circle.querySelector('i').className = icon;
 }
 
-// ---------- Smooth number animation ----------
-function animateNumber(id, target, decimals = 0) {
-  const el = $(id);
-  const start = parseFloat(el.textContent.replace(/,/g, '')) || 0;
-  const diff = target - start;
-  const steps = 20; let i = 0;
-  clearInterval(el._anim);
-  el._anim = setInterval(() => {
-    i++;
-    const v = start + (diff * i) / steps;
-    el.textContent = decimals ? v.toFixed(decimals) : fmt(Math.round(v));
-    if (i >= steps) clearInterval(el._anim);
-  }, 20);
+// ---------- Live parameter rendering ----------
+function renderLive(live) {
+  if (!live) return;
+  const { voltage = 0, current = 0, power = 0, powerFactor = 0, frequency = 0, timestamp } = live;
+
+  $('pVolt').textContent = fmt(voltage);
+  $('pCurr').textContent = fmt2(current);
+  $('pPow').textContent  = fmt(power);
+  $('pPF').textContent   = fmt2(powerFactor);
+  $('pFreq').textContent = fmt2(frequency);
+
+  $('metricPower').innerHTML = `${fmt(power)} <small>W</small>`;
+
+  // Sparkline
+  const arr = sparkChart.data.datasets[0].data;
+  arr.push(power);
+  if (arr.length > 20) arr.shift();
+  sparkChart.update('none');
+
+  // Update the current hour in today's chart with the latest reading
+  const hr = new Date().getHours();
+  usageChart.data.datasets[0].data[hr] = power;
+  usageChart.update('none');
+
+  updateAudit(power);
+
+  const ts = timestamp ? new Date(timestamp) : new Date();
+  const dateStr = ts.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const timeStr = ts.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  $('sidebarUpdated').textContent = `${dateStr}  ${timeStr}`;
+}
+
+// ---------- Firebase ----------
+function setConn(online, text) {
+  $('connText').textContent = text;
+  $('connDot').style.background = online ? 'var(--green-600)' : 'var(--red-500)';
+}
+
+let lastLive = null;
+let lastTodayKwh = 0;
+let lastMonthKwh = 0;
+
+function initFirebase() {
+  const cfg = CFG.firebase;
+  if (!cfg?.databaseURL || cfg.databaseURL.includes('YOUR_PROJECT_ID')) {
+    setConn(false, 'Config missing');
+    renderRecs([]);
+    console.warn('Fill in public/dashboard/config.js with your Firebase project credentials.');
+    return;
+  }
+
+  let app, db;
+  try {
+    app = initializeApp({
+      apiKey: cfg.apiKey,
+      authDomain: cfg.authDomain,
+      databaseURL: cfg.databaseURL,
+      projectId: cfg.projectId,
+      appId: cfg.appId,
+    });
+    db = getDatabase(app);
+  } catch (err) {
+    console.error('Firebase init failed:', err);
+    setConn(false, 'Firebase init failed');
+    return;
+  }
+
+  // Live values
+  const liveRef = ref(db, CFG.paths.live);
+  onValue(liveRef, (snap) => {
+    const live = snap.val();
+    if (!live) { setConn(false, 'No live data'); return; }
+    setConn(true, 'Online');
+    lastLive = live;
+    renderLive(live);
+    renderRecs(buildRecommendations(live, lastTodayKwh, lastMonthKwh));
+  }, (err) => {
+    console.error('Live read failed:', err);
+    setConn(false, 'Connection lost');
+  });
+
+  // Today's hourly history
+  const hourlyRef = ref(db, `${CFG.paths.hourly}/${todayKey()}`);
+  onValue(hourlyRef, (snap) => {
+    const hours = snap.val() || {};
+    const data = new Array(24).fill(null);
+    for (let h = 0; h < 24; h++) {
+      if (hours[h] != null) data[h] = Number(hours[h]);
+    }
+    // Preserve current-hour live reading if available
+    const curHr = new Date().getHours();
+    if (lastLive?.power != null) data[curHr] = lastLive.power;
+    usageChart.data.datasets[0].data = data;
+    usageChart.update('none');
+
+    // Peak hour
+    let peakHr = -1, peakVal = -Infinity;
+    data.forEach((v, i) => { if (v != null && v > peakVal) { peakVal = v; peakHr = i; } });
+    $('peakTime').textContent = peakHr >= 0
+      ? `${(peakHr % 12) || 12}:00 ${peakHr < 12 ? 'AM' : 'PM'}`
+      : '—';
+  });
+
+  // Daily history — last 7 days for weekly chart + today's/month kWh
+  const dailyRef = ref(db, CFG.paths.daily);
+  onValue(dailyRef, (snap) => {
+    const daily = snap.val() || {};
+
+    // Weekly bar chart (last 7 days including today)
+    const labels = [], values = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      labels.push(d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+      values.push(Number(daily[key] || 0));
+    }
+    weeklyChart.data.labels = labels;
+    weeklyChart.data.datasets[0].data = values;
+    weeklyChart.update('none');
+
+    // Today
+    const tKwh = Number(daily[todayKey()] || 0);
+    lastTodayKwh = tKwh;
+    $('todayKwh').textContent = fmt2(tKwh);
+
+    // Month-to-date
+    const mk = monthKey();
+    const mKwh = Object.entries(daily)
+      .filter(([k]) => k.startsWith(mk))
+      .reduce((sum, [, v]) => sum + Number(v || 0), 0);
+    lastMonthKwh = mKwh;
+    $('monthKwh').textContent = fmt2(mKwh);
+
+    // Bill
+    const rate = CFG.electricityRatePhpPerKwh;
+    const bill = mKwh * rate;
+    $('metricBill').textContent = `₱${fmt2(bill)}`;
+    $('billRate').textContent = `₱${fmt2(rate)}`;
+    $('billKwh').textContent  = fmt2(mKwh);
+
+    // Recommendations depend on aggregates
+    if (lastLive) renderRecs(buildRecommendations(lastLive, lastTodayKwh, lastMonthKwh));
+  });
 }
 
 // ---------- Bootstrap ----------
 function init() {
   updateClock();
+  setInterval(updateClock, 1000);
   initSidebar();
   initTheme();
   initSpark();
   initUsageChart();
   initWeeklyChart();
-  renderRecs();
-  updateLiveParams();
-
-  setInterval(updateClock, 1000);
-  setInterval(updateLiveParams, 3000);
-  setInterval(renderRecs, 15000);
+  renderRecs([]);
+  initFirebase();
 }
 
-document.addEventListener('DOMContentLoaded', init);
+init();
