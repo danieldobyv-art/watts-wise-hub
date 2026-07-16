@@ -10,17 +10,8 @@ import {
   getDatabase, ref, onValue, get, child,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
-// Load config synchronously via a plain <script> tag would be cleaner, but
-// with modules we import the global set by config.js. We include config.js
-// via a <script> tag in index.html — but to keep index.html tidy we load it
-// here dynamically so it's available before we init Firebase.
-await new Promise((resolve, reject) => {
-  const s = document.createElement("script");
-  s.src = "config.js";
-  s.onload = resolve;
-  s.onerror = () => reject(new Error("Failed to load config.js"));
-  document.head.appendChild(s);
-});
+// config.js is loaded via a regular <script> tag in index.html and exposes
+// window.AIEAS_CONFIG synchronously before this module runs.
 
 const CFG = window.AIEAS_CONFIG;
 if (!CFG) throw new Error("AIEAS_CONFIG missing — check config.js");
