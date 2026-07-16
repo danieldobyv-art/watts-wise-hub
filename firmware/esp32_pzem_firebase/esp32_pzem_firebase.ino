@@ -130,15 +130,7 @@ void initFirebase() {
 }
 
 // -------- PZEM read (with basic recovery) ----------------------
-struct Reading {
-  bool   ok;
-  float  voltage;   // V
-  float  current;   // A
-  float  power;     // W
-  float  energy;    // kWh
-  float  frequency; // Hz
-  float  pf;        // 0..1
-};
+
 
 Reading readPZEM() {
   Reading r{false, 0, 0, 0, 0, 0, 0};
