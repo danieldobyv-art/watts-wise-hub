@@ -58,7 +58,7 @@
 
       <div class="sidebar-footer">
         <p class="sf-label">System Status</p>
-        <p class="sf-status"><span class="dot"></span> Online</p>
+        <p class="sf-status"><span class="dot" id="connDot"></span> <span id="connText">Connecting…</span></p>
         <p class="sf-label mt">Last Updated</p>
         <p class="sf-time" id="sidebarUpdated">—</p>
       </div>
@@ -99,7 +99,7 @@
             <div class="icon-badge green"><i class="fa-solid fa-bolt"></i></div>
             <span class="card-label">Current Power</span>
           </div>
-          <h3 class="metric" id="metricPower">1,250 <small>W</small></h3>
+          <h3 class="metric" id="metricPower">— <small>W</small></h3>
           <p class="muted">Live household power consumption</p>
           <div class="spark"><canvas id="sparkPower"></canvas></div>
         </article>
@@ -109,11 +109,8 @@
             <div class="icon-badge blue"><i class="fa-solid fa-file-invoice-dollar"></i></div>
             <span class="card-label">Estimated Monthly Bill</span>
           </div>
-          <h3 class="metric" id="metricBill">₱1,984</h3>
-          <p class="muted">Prediction for this month</p>
-          <span class="pill pill-down" id="billDelta">
-            <i class="fa-solid fa-arrow-down"></i> 8.6% vs last month
-          </span>
+          <h3 class="metric" id="metricBill">₱—</h3>
+          <p class="muted">Based on <span id="billRate">₱12.00</span>/kWh &times; <span id="billKwh">0</span> kWh</p>
         </article>
 
         <article class="card summary-card accent-amber">
@@ -123,8 +120,8 @@
           </div>
           <div class="audit-row">
             <div>
-              <h3 class="metric status-text" id="auditStatus">Normal</h3>
-              <p class="muted" id="auditNote">No unusual consumption detected</p>
+              <h3 class="metric status-text" id="auditStatus">—</h3>
+              <p class="muted" id="auditNote">Waiting for live data…</p>
             </div>
             <div class="status-circle" id="auditCircle">
               <i class="fa-regular fa-face-smile"></i>
@@ -169,30 +166,30 @@
             <div class="param">
               <div class="param-icon green"><i class="fa-solid fa-wave-square"></i></div>
               <p class="param-label">Voltage</p>
-              <p class="param-value"><span id="pVolt">228</span> V</p>
+              <p class="param-value"><span id="pVolt">—</span> V</p>
             </div>
             <div class="param">
               <div class="param-icon blue"><i class="fa-solid fa-a"></i></div>
               <p class="param-label">Current</p>
-              <p class="param-value"><span id="pCurr">5.3</span> A</p>
+              <p class="param-value"><span id="pCurr">—</span> A</p>
             </div>
             <div class="param">
               <div class="param-icon purple"><i class="fa-solid fa-gauge"></i></div>
               <p class="param-label">Power</p>
-              <p class="param-value"><span id="pPow">1250</span> W</p>
+              <p class="param-value"><span id="pPow">—</span> W</p>
             </div>
             <div class="param">
               <div class="param-icon orange">PF</div>
               <p class="param-label">Power Factor</p>
-              <p class="param-value" id="pPF">0.95</p>
+              <p class="param-value" id="pPF">—</p>
             </div>
             <div class="param">
               <div class="param-icon teal"><i class="fa-solid fa-wave-square"></i></div>
               <p class="param-label">Frequency</p>
-              <p class="param-value"><span id="pFreq">60.0</span> Hz</p>
+              <p class="param-value"><span id="pFreq">—</span> Hz</p>
             </div>
           </div>
-          <p class="muted small center">All values are simulated in real-time — ready to be wired to ESP32 sensor data.</p>
+          <p class="muted small center">Live values streamed from PZEM-004T v4 &rarr; ESP32 &rarr; Firebase Realtime Database.</p>
         </article>
 
         <article class="card weekly-card">
@@ -215,21 +212,21 @@
           <div class="icon-badge green"><i class="fa-solid fa-sun"></i></div>
           <div>
             <p class="muted">Today's Consumption</p>
-            <h3 class="metric-sm"><span id="todayKwh">8.4</span> kWh</h3>
+            <h3 class="metric-sm"><span id="todayKwh">—</span> kWh</h3>
           </div>
         </article>
         <article class="card mini">
           <div class="icon-badge blue"><i class="fa-solid fa-calendar-days"></i></div>
           <div>
             <p class="muted">Monthly Consumption</p>
-            <h3 class="metric-sm">236.5 kWh</h3>
+            <h3 class="metric-sm"><span id="monthKwh">—</span> kWh</h3>
           </div>
         </article>
         <article class="card mini">
           <div class="icon-badge amber"><i class="fa-solid fa-clock"></i></div>
           <div>
             <p class="muted">Peak Usage Time</p>
-            <h3 class="metric-sm">7:00 PM</h3>
+            <h3 class="metric-sm" id="peakTime">—</h3>
           </div>
         </article>
       </section>
@@ -243,6 +240,9 @@
     </main>
   </div>
 
-  <script src="script.js"></script>
+  <!-- Central configuration (edit this file only) -->
+  <script src="config.js"></script>
+  <!-- Firebase modular v10 SDK is imported inside script.js -->
+  <script type="module" src="script.js"></script>
 </body>
 </html>
