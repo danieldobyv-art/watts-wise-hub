@@ -2,26 +2,35 @@
    AI Energy Auditing System — Dashboard (Live Firebase Data)
    Data flow:
      PZEM-004T v4  →  ESP32  →  Firebase Realtime Database  →  this dashboard
-   All configurable values live in config.js (window.AIEAS_CONFIG).
+
+   Firebase RTDB schema (as written by the ESP32):
+     /live
+       ├── voltage      (V)
+       ├── current      (A)
+       ├── power        (W)
+       ├── energy       (kWh, cumulative since PZEM reset)
+       ├── frequency    (Hz)
+       ├── powerFactor
+       └── timestamp    (ms since epoch, optional)
    ============================================================ */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
-  getDatabase, ref, onValue, get, child,
+  getDatabase, ref, onValue,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
-
-// config.js is loaded via a regular <script> tag in index.html and exposes
-// window.AIEAS_CONFIG synchronously before this module runs.
 
 const CFG = window.AIEAS_CONFIG;
 if (!CFG) throw new Error("AIEAS_CONFIG missing — check config.js");
 
 // ---------- Utilities ----------
 const $ = (id) => document.getElementById(id);
-const fmt = (n) => Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 });
-const fmt2 = (n) => Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const todayKey = () => new Date().toISOString().slice(0, 10);       // YYYY-MM-DD
-const monthKey = () => new Date().toISOString().slice(0, 7);        // YYYY-MM
+const NO_DATA = "No Data";
+const isNum = (v) => v !== null && v !== undefined && !Number.isNaN(Number(v));
+const num = (v, d = 0) => (isNum(v) ? Number(v) : d);
+const fmt  = (v) => (isNum(v) ? Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 }) : NO_DATA);
+const fmt2 = (v) => (isNum(v) ? Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : NO_DATA);
+const todayKey = () => new Date().toISOString().slice(0, 10);
+const monthKey = () => new Date().toISOString().slice(0, 7);
 
 // ---------- Live clock ----------
 function updateClock() {
@@ -71,7 +80,6 @@ function gradient(ctx, color) {
   return g;
 }
 
-// ---------- Charts ----------
 let usageChart, weeklyChart, sparkChart;
 
 function initUsageChart() {
@@ -169,7 +177,7 @@ function initSpark() {
   });
 }
 
-// ---------- AI Recommendations (derived from live values) ----------
+// ---------- AI Recommendations ----------
 const ICONS = {
   warn:  'fa-solid fa-triangle-exclamation',
   info:  'fa-solid fa-circle-info',
@@ -179,9 +187,9 @@ const ICONS = {
 
 function buildRecommendations(live, todayKwh, monthKwh) {
   const recs = [];
-  const p = live?.power ?? 0;
-  const pf = live?.powerFactor ?? 1;
-  const v = live?.voltage ?? 230;
+  const p = num(live?.power, 0);
+  const pf = num(live?.powerFactor, 1);
+  const v = num(live?.voltage, 230);
   const hour = new Date().getHours();
   const T = CFG.auditThresholds;
 
@@ -234,6 +242,15 @@ function renderRecs(recs) {
 function updateAudit(power) {
   const el = $('auditStatus'), note = $('auditNote'), circle = $('auditCircle');
   circle.classList.remove('moderate', 'high');
+
+  if (!isNum(power)) {
+    el.textContent = NO_DATA;
+    el.style.color = 'var(--muted, #6b7a74)';
+    note.textContent = 'Waiting for live data from Firebase…';
+    circle.querySelector('i').className = 'fa-regular fa-face-meh';
+    return;
+  }
+
   const T = CFG.auditThresholds;
   let status, msg, icon, color;
 
@@ -267,10 +284,42 @@ function updateAudit(power) {
   circle.querySelector('i').className = icon;
 }
 
+// ---------- Baselines for today / month kWh from cumulative live.energy ----------
+function getBaseline(storageKey, currentEnergy) {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (raw != null) {
+      const n = Number(raw);
+      // If PZEM was reset, cumulative dropped below baseline → reset baseline.
+      if (Number.isFinite(n) && currentEnergy >= n) return n;
+    }
+  } catch {}
+  localStorage.setItem(storageKey, String(currentEnergy));
+  return currentEnergy;
+}
+
 // ---------- Live parameter rendering ----------
 function renderLive(live) {
-  if (!live) return;
-  const { voltage = 0, current = 0, power = 0, powerFactor = 0, frequency = 0, timestamp } = live;
+  if (!live || typeof live !== 'object') {
+    console.warn('[AIEAS] No live payload received');
+    $('pVolt').textContent = NO_DATA;
+    $('pCurr').textContent = NO_DATA;
+    $('pPow').textContent  = NO_DATA;
+    $('pPF').textContent   = NO_DATA;
+    $('pFreq').textContent = NO_DATA;
+    $('metricPower').innerHTML = `${NO_DATA}`;
+    $('todayKwh').textContent = NO_DATA;
+    $('monthKwh').textContent = NO_DATA;
+    $('metricBill').textContent = NO_DATA;
+    updateAudit(null);
+    return;
+  }
+
+  const { voltage, current, power, powerFactor, frequency, energy, timestamp } = live;
+
+  console.log('[AIEAS] Values received:', {
+    voltage, current, power, powerFactor, frequency, energy, timestamp,
+  });
 
   $('pVolt').textContent = fmt(voltage);
   $('pCurr').textContent = fmt2(current);
@@ -278,22 +327,47 @@ function renderLive(live) {
   $('pPF').textContent   = fmt2(powerFactor);
   $('pFreq').textContent = fmt2(frequency);
 
-  $('metricPower').innerHTML = `${fmt(power)} <small>W</small>`;
+  $('metricPower').innerHTML = isNum(power) ? `${fmt(power)} <small>W</small>` : NO_DATA;
 
-  // Sparkline
-  const arr = sparkChart.data.datasets[0].data;
-  arr.push(power);
-  if (arr.length > 20) arr.shift();
-  sparkChart.update('none');
+  // Sparkline + current-hour usage chart
+  if (isNum(power)) {
+    const arr = sparkChart.data.datasets[0].data;
+    arr.push(Number(power));
+    if (arr.length > 20) arr.shift();
+    sparkChart.update('none');
 
-  // Update the current hour in today's chart with the latest reading
-  const hr = new Date().getHours();
-  usageChart.data.datasets[0].data[hr] = power;
-  usageChart.update('none');
+    const hr = new Date().getHours();
+    usageChart.data.datasets[0].data[hr] = Number(power);
+    usageChart.update('none');
+  }
 
-  updateAudit(power);
+  updateAudit(isNum(power) ? Number(power) : null);
 
-  const ts = timestamp ? new Date(timestamp) : new Date();
+  // Energy-derived cards (today / month / bill) from cumulative live.energy
+  if (isNum(energy)) {
+    const e = Number(energy);
+    const dayBase = getBaseline(`aieas-energy-base-${todayKey()}`, e);
+    const monBase = getBaseline(`aieas-energy-base-${monthKey()}`, e);
+    const tKwh = Math.max(0, e - dayBase);
+    const mKwh = Math.max(0, e - monBase);
+
+    $('todayKwh').textContent = fmt2(tKwh);
+    $('monthKwh').textContent = fmt2(mKwh);
+
+    const rate = CFG.electricityRatePhpPerKwh;
+    $('metricBill').textContent = `₱${fmt2(mKwh * rate)}`;
+    $('billRate').textContent = `₱${fmt2(rate)}`;
+    $('billKwh').textContent  = fmt2(mKwh);
+
+    renderRecs(buildRecommendations(live, tKwh, mKwh));
+  } else {
+    $('todayKwh').textContent = NO_DATA;
+    $('monthKwh').textContent = NO_DATA;
+    $('metricBill').textContent = NO_DATA;
+    renderRecs(buildRecommendations(live, 0, 0));
+  }
+
+  const ts = timestamp ? new Date(Number(timestamp)) : new Date();
   const dateStr = ts.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   const timeStr = ts.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   $('sidebarUpdated').textContent = `${dateStr}  ${timeStr}`;
@@ -305,16 +379,12 @@ function setConn(online, text) {
   $('connDot').style.background = online ? 'var(--green-600)' : 'var(--red-500)';
 }
 
-let lastLive = null;
-let lastTodayKwh = 0;
-let lastMonthKwh = 0;
-
 function initFirebase() {
   const cfg = CFG.firebase;
-  if (!cfg?.databaseURL || cfg.databaseURL.includes('YOUR_PROJECT_ID')) {
+  if (!cfg?.databaseURL || cfg.databaseURL.includes('YOUR_PROJECT_ID') || cfg.apiKey?.includes('YOUR_')) {
     setConn(false, 'Config missing');
-    renderRecs([]);
-    console.warn('Fill in public/dashboard/config.js with your Firebase project credentials.');
+    renderLive(null);
+    console.error('[AIEAS] Firebase config missing — edit public/dashboard/config.js with your project credentials.');
     return;
   }
 
@@ -328,87 +398,30 @@ function initFirebase() {
       appId: cfg.appId,
     });
     db = getDatabase(app);
+    console.log('[AIEAS] Firebase connected:', cfg.databaseURL);
   } catch (err) {
-    console.error('Firebase init failed:', err);
+    console.error('[AIEAS] Firebase init failed:', err);
     setConn(false, 'Firebase init failed');
     return;
   }
 
-  // Live values
-  const liveRef = ref(db, CFG.paths.live);
+  const path = CFG.paths.live;
+  const liveRef = ref(db, path);
+  console.log(`[AIEAS] Subscribing to /${path} …`);
+
   onValue(liveRef, (snap) => {
     const live = snap.val();
-    if (!live) { setConn(false, 'No live data'); return; }
+    console.log('[AIEAS] Data received from /' + path + ':', live);
+    if (!live) {
+      setConn(false, 'No live data');
+      renderLive(null);
+      return;
+    }
     setConn(true, 'Online');
-    lastLive = live;
     renderLive(live);
-    renderRecs(buildRecommendations(live, lastTodayKwh, lastMonthKwh));
   }, (err) => {
-    console.error('Live read failed:', err);
+    console.error('[AIEAS] Firebase read error:', err);
     setConn(false, 'Connection lost');
-  });
-
-  // Today's hourly history
-  const hourlyRef = ref(db, `${CFG.paths.hourly}/${todayKey()}`);
-  onValue(hourlyRef, (snap) => {
-    const hours = snap.val() || {};
-    const data = new Array(24).fill(null);
-    for (let h = 0; h < 24; h++) {
-      if (hours[h] != null) data[h] = Number(hours[h]);
-    }
-    // Preserve current-hour live reading if available
-    const curHr = new Date().getHours();
-    if (lastLive?.power != null) data[curHr] = lastLive.power;
-    usageChart.data.datasets[0].data = data;
-    usageChart.update('none');
-
-    // Peak hour
-    let peakHr = -1, peakVal = -Infinity;
-    data.forEach((v, i) => { if (v != null && v > peakVal) { peakVal = v; peakHr = i; } });
-    $('peakTime').textContent = peakHr >= 0
-      ? `${(peakHr % 12) || 12}:00 ${peakHr < 12 ? 'AM' : 'PM'}`
-      : '—';
-  });
-
-  // Daily history — last 7 days for weekly chart + today's/month kWh
-  const dailyRef = ref(db, CFG.paths.daily);
-  onValue(dailyRef, (snap) => {
-    const daily = snap.val() || {};
-
-    // Weekly bar chart (last 7 days including today)
-    const labels = [], values = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(); d.setDate(d.getDate() - i);
-      const key = d.toISOString().slice(0, 10);
-      labels.push(d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
-      values.push(Number(daily[key] || 0));
-    }
-    weeklyChart.data.labels = labels;
-    weeklyChart.data.datasets[0].data = values;
-    weeklyChart.update('none');
-
-    // Today
-    const tKwh = Number(daily[todayKey()] || 0);
-    lastTodayKwh = tKwh;
-    $('todayKwh').textContent = fmt2(tKwh);
-
-    // Month-to-date
-    const mk = monthKey();
-    const mKwh = Object.entries(daily)
-      .filter(([k]) => k.startsWith(mk))
-      .reduce((sum, [, v]) => sum + Number(v || 0), 0);
-    lastMonthKwh = mKwh;
-    $('monthKwh').textContent = fmt2(mKwh);
-
-    // Bill
-    const rate = CFG.electricityRatePhpPerKwh;
-    const bill = mKwh * rate;
-    $('metricBill').textContent = `₱${fmt2(bill)}`;
-    $('billRate').textContent = `₱${fmt2(rate)}`;
-    $('billKwh').textContent  = fmt2(mKwh);
-
-    // Recommendations depend on aggregates
-    if (lastLive) renderRecs(buildRecommendations(lastLive, lastTodayKwh, lastMonthKwh));
   });
 }
 
