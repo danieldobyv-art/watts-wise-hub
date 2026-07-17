@@ -28,8 +28,8 @@ window.AIEAS_CONFIG = {
 
   // ---- Realtime Database paths ----
   paths: {
-    live:    "energy-monitor/live",
-    hourly:  "energy-monitor/history/hourly",  // { "<YYYY-MM-DD>": { "0".."23": avgWatts } }
-    daily:   "energy-monitor/history/daily",   // { "<YYYY-MM-DD>": kWh }
+    live:    "live",
+    hourly:  "history/hourly",  // optional — { "<YYYY-MM-DD>": { "0".."23": avgWatts } }
+    daily:   "history/daily",   // optional — { "<YYYY-MM-DD>": kWh }
   },
 };
